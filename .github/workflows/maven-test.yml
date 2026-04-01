@@ -43,10 +43,10 @@ jobs:
       - name: Run tests with coverage
         if: github.event_name != 'pull_request'
         run: >
-          mvn -B test
+          mvn -B
           org.jacoco:jacoco-maven-plugin:prepare-agent
+          test
           org.jacoco:jacoco-maven-plugin:report
-          -Djacoco.destFile=target/jacoco.exec
 
       - name: Convert JaCoCo to lcov
         if: github.event_name != 'pull_request'
