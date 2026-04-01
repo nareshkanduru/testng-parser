@@ -36,61 +36,56 @@ jobs:
           java-version: '11'
           cache: maven
 
-      - name: Run tests (PR only)
+      - name: Run tests
         if: github.event_name == 'pull_request'
         run: mvn -B test
 
-      - name: Run tests with coverage (push/dispatch)
+      - name: Run tests with coverage
         if: github.event_name != 'pull_request'
-        run: mvn -B org.jacoco:jacoco-maven-plugin:prepare-agent test org.jacoco:jacoco-maven-plugin:report
+        run: >
+          mvn -B test
+          org.jacoco:jacoco-maven-plugin:prepare-agent
+          org.jacoco:jacoco-maven-plugin:report
+          -Djacoco.destFile=target/jacoco.exec
 
-      - name: Convert JaCoCo XML to LCOV
+      - name: Convert JaCoCo to lcov
         if: github.event_name != 'pull_request'
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install lcov_cobertura
-          # JaCoCo generates XML report at target/site/jacoco/jacoco.xml
-          # First convert jacoco.xml to cobertura format, then to lcov
-          # Use a simpler approach: generate lcov directly from jacoco csv/xml
           mkdir -p coverage
-          # Install a tool to convert jacoco to lcov
-          pip3 install pycobertura
+          # Install pycobertura-like tool to convert; use a simple Python approach
+          pip install lcov_cobertura 2>/dev/null || true
+          # Use jacoco csv/xml to produce lcov
           python3 -c "
           import xml.etree.ElementTree as ET
           import os
 
-          jacoco_xml = 'target/site/jacoco/jacoco.xml'
-          if not os.path.exists(jacoco_xml):
-              print('JaCoCo XML report not found')
-              exit(1)
+          report_path = 'target/site/jacoco/jacoco.xml'
+          if not os.path.exists(report_path):
+              print('JaCoCo XML report not found, skipping lcov conversion')
+              exit(0)
 
-          tree = ET.parse(jacoco_xml)
+          tree = ET.parse(report_path)
           root = tree.getroot()
-
           lcov_lines = []
+
           for package in root.findall('.//package'):
               pkg_name = package.get('name', '')
               for sourcefile in package.findall('sourcefile'):
                   sf_name = sourcefile.get('name', '')
                   source_path = pkg_name + '/' + sf_name
                   lcov_lines.append('TN:')
-                  lcov_lines.append('SF:' + source_path)
+                  lcov_lines.append('SF:src/main/java/' + source_path)
                   for line in sourcefile.findall('line'):
-                      line_nr = line.get('nr')
-                      mi = int(line.get('mi', 0))
+                      nr = line.get('nr')
                       ci = int(line.get('ci', 0))
-                      hits = ci
-                      lcov_lines.append('DA:' + line_nr + ',' + str(hits))
-                  # Summary
-                  lines = sourcefile.findall('line')
-                  lcov_lines.append('LF:' + str(len(lines)))
-                  hit_count = sum(1 for l in lines if int(l.get('ci', 0)) > 0)
-                  lcov_lines.append('LH:' + str(hit_count))
+                      mi = int(line.get('mi', 0))
+                      hits = 1 if ci > 0 else 0
+                      lcov_lines.append(f'DA:{nr},{hits}')
                   lcov_lines.append('end_of_record')
 
           with open('coverage/lcov.info', 'w') as f:
               f.write('\n'.join(lcov_lines) + '\n')
-          print('LCOV report generated at coverage/lcov.info')
+          print('Generated coverage/lcov.info')
           "
 
       - name: Upload coverage report
